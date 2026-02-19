@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import Papa from 'papaparse'
+import * as XLSX from 'xlsx'
 import './App.css'
 
 type BookRow = {
@@ -436,6 +437,124 @@ function App() {
     }
   }, [books])
 
+  const exportWorkbook = () => {
+    const workbook = XLSX.utils.book_new()
+
+    const corpusSheetRows = [
+      {
+        metric: 'Antall bøker',
+        value: corpusSummary.total,
+      },
+      {
+        metric: 'Antall menn',
+        value: corpusSummary.male,
+      },
+      {
+        metric: 'Antall kvinner',
+        value: corpusSummary.female,
+      },
+      {
+        metric: 'Ukjent kjønn',
+        value: corpusSummary.unknown,
+      },
+    ]
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(corpusSheetRows), 'Korpusoversikt')
+
+    if (overallStats) {
+      const overallRows = [
+        {
+          documents: overallStats.documents,
+          n: overallStats.nCounts,
+          mean_length: overallStats.mean,
+          median_length: overallStats.median,
+          std_length: overallStats.std,
+        },
+      ]
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(overallRows), 'Aggregert')
+    }
+
+    if (summaryRows.length > 0) {
+      const summarySheet = summaryRows.map((row) => ({
+        bin: row.binIndex,
+        year_range: row.binLabel,
+        start_year: row.startYear,
+        end_year: row.endYear,
+        documents: row.documents,
+        n: row.nCounts,
+        mean_length: row.mean,
+        median_length: row.median,
+        std_length: row.std,
+      }))
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(summarySheet), 'Summary_bin')
+    }
+
+    if (binGenderSummaryRows.length > 0) {
+      const genderSheet = binGenderSummaryRows.map((row) => ({
+        bin: row.binIndex,
+        year_range: row.binLabel,
+        gender: row.gender,
+        documents: row.documents,
+        mean_length: row.mean,
+        std_length: row.std,
+      }))
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(genderSheet), 'Gender_bin')
+    }
+
+    if (binDifferenceRows.length > 0) {
+      const diffSheet = binDifferenceRows.map((row) => ({
+        bin: row.binIndex,
+        year_range: row.binLabel,
+        female_n: row.femaleN,
+        male_n: row.maleN,
+        female_mean_length: row.femaleMean,
+        male_mean_length: row.maleMean,
+        diff_female_minus_male: row.meanDiffFemaleMinusMale,
+        female_std: row.femaleStd,
+        male_std: row.maleStd,
+        female_se: row.femaleSe,
+        male_se: row.maleSe,
+        diff_se: row.diffSe,
+        z: row.zScore,
+        p_two_sided: row.pValueTwoSided,
+      }))
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(diffSheet), 'Diff_bin')
+    }
+
+    if (topLongestRows.length > 0) {
+      const topSheet = topLongestRows.map((row) => ({
+        bin: row.binIndex,
+        year_range: row.binLabel,
+        gender: row.gender,
+        rank: row.rank,
+        year: row.year,
+        author: row.author,
+        title: row.title,
+        dhlabid: row.dhlabid,
+        total: row.total,
+        count_og: row.count,
+      }))
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(topSheet), 'Top10_longest')
+    }
+
+    if (detailRows.length > 0) {
+      const detailSheet = detailRows.map((row) => ({
+        year: row.year,
+        bin: row.binIndex,
+        year_range: row.binLabel,
+        gender: row.gender,
+        author: row.author,
+        title: row.title,
+        dhlabid: row.dhlabid,
+        total: row.total,
+        count_og: row.count,
+      }))
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(detailSheet), 'Details')
+    }
+
+    const filename = `dokumentlengde_bins_${startYear}_${endYear}.xlsx`
+    XLSX.writeFile(workbook, filename)
+  }
+
   const runAnalysis = async () => {
     if (!csvLoaded) {
       return
@@ -816,6 +935,13 @@ function App() {
         </div>
         <button disabled={isRunning || !csvLoaded} onClick={() => void runAnalysis()}>
           {isRunning ? 'Kjorer...' : 'Kjor analyse'}
+        </button>
+        <button
+          disabled={!csvLoaded || (summaryRows.length === 0 && detailRows.length === 0)}
+          onClick={exportWorkbook}
+          style={{ marginLeft: '0.6rem' }}
+        >
+          Last ned Excel
         </button>
       </section>
 
