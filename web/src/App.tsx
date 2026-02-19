@@ -32,8 +32,6 @@ const CSV_PATH = `${import.meta.env.BASE_URL}Helenes_korpusdata.csv`
 const METADATA_URL = 'https://api.nb.no/dhlab/get_metadata'
 const FREQUENCIES_URL = 'https://api.nb.no/dhlab/frequencies'
 const TRIGGER_WORD = 'og'
-const DEFAULT_START_YEAR = 2010
-const DEFAULT_END_YEAR = 2025
 
 function normalizeUrn(row: Record<string, string>): string {
   return (row.urn || row.new_urns || '').trim()
@@ -187,8 +185,8 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string>('')
 
-  const [startYear, setStartYear] = useState(DEFAULT_START_YEAR)
-  const [endYear, setEndYear] = useState(DEFAULT_END_YEAR)
+  const [startYear, setStartYear] = useState(2010)
+  const [endYear, setEndYear] = useState(2025)
   const [cutoff, setCutoff] = useState(1)
 
   const [genderFilter, setGenderFilter] = useState('all')
@@ -236,6 +234,13 @@ function App() {
           })
           .filter((row): row is BookRow => row !== null)
         setBooks(rows)
+        const years = rows
+          .map((row) => parseYear(row.year))
+          .filter((value): value is number => value !== undefined)
+        if (years.length > 0) {
+          setStartYear(Math.min(...years))
+          setEndYear(Math.max(...years))
+        }
         setCsvLoaded(true)
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : 'Kunne ikke lese CSV')
