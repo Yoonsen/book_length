@@ -53,6 +53,17 @@ function parseDhlabid(value: string | number | undefined): number | undefined {
   return Number.isFinite(id) ? id : undefined
 }
 
+function normalizeGender(value: string | number | undefined): 'male' | 'female' | 'unknown' {
+  const normalized = String(value ?? '').trim().toLowerCase()
+  if (['male', 'masc', 'm', 'mann'].includes(normalized)) {
+    return 'male'
+  }
+  if (['female', 'fem', 'f', 'kvinne', 'kvinner'].includes(normalized)) {
+    return 'female'
+  }
+  return 'unknown'
+}
+
 async function postJson(url: string, payload: unknown): Promise<unknown> {
   const response = await fetch(url, {
     method: 'POST',
@@ -239,6 +250,26 @@ function App() {
     return [...values].sort()
   }, [books])
 
+  const corpusSummary = useMemo(() => {
+    let male = 0
+    let female = 0
+    let unknown = 0
+
+    books.forEach((book) => {
+      const gender = normalizeGender(book.gender)
+      if (gender === 'male') male += 1
+      else if (gender === 'female') female += 1
+      else unknown += 1
+    })
+
+    return {
+      total: books.length,
+      male,
+      female,
+      unknown,
+    }
+  }, [books])
+
   const runAnalysis = async () => {
     if (!csvLoaded) {
       return
@@ -367,6 +398,32 @@ function App() {
       <p className="lead">
         Henter metadata, filtrerer bokutvalg, og plotter dokumentfrekvens (triggerord: {TRIGGER_WORD}) over år.
       </p>
+
+      {!csvLoaded && !error && <p className="status info">Laster korpus...</p>}
+
+      {csvLoaded && (
+        <section className="panel">
+          <h2>Korpusoversikt</h2>
+          <div className="summaryGrid">
+            <div className="summaryCard">
+              <div className="summaryLabel">Antall bøker</div>
+              <div className="summaryValue">{corpusSummary.total}</div>
+            </div>
+            <div className="summaryCard">
+              <div className="summaryLabel">Antall menn</div>
+              <div className="summaryValue">{corpusSummary.male}</div>
+            </div>
+            <div className="summaryCard">
+              <div className="summaryLabel">Antall kvinner</div>
+              <div className="summaryValue">{corpusSummary.female}</div>
+            </div>
+            <div className="summaryCard">
+              <div className="summaryLabel">Ukjent kjønn</div>
+              <div className="summaryValue">{corpusSummary.unknown}</div>
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="panel">
         <h2>Innstillinger</h2>
