@@ -228,6 +228,9 @@ function App() {
           throw new Error(`Fant ikke CSV på ${CSV_PATH}`)
         }
         const csvText = await response.text()
+        if (csvText.startsWith('version https://git-lfs.github.com/spec/v1')) {
+          throw new Error('CSV-filen er en Git LFS-pointer i deploy. Workflow må sjekke ut LFS-innhold.')
+        }
         const parsed = Papa.parse<Record<string, string>>(csvText, {
           header: true,
           skipEmptyLines: true,
@@ -255,6 +258,9 @@ function App() {
             } as BookRow
           })
           .filter((row): row is BookRow => row !== null)
+        if (rows.length === 0) {
+          throw new Error('CSV ble lastet, men ga 0 rader. Sjekk separator/header eller deploy-fil.')
+        }
         setBooks(rows)
         const years = rows
           .map((row) => parseYear(row.year))
