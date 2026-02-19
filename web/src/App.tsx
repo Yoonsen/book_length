@@ -485,8 +485,6 @@ function App() {
 
   const [genderFilter, setGenderFilter] = useState('all')
   const [subjectContains, setSubjectContains] = useState('')
-  const [literaryformFilter, setLiteraryformFilter] = useState('')
-  const [deweyPrefix, setDeweyPrefix] = useState('')
 
   const [summaryRows, setSummaryRows] = useState<BinSummaryRow[]>([])
   const [detailRows, setDetailRows] = useState<DetailRow[]>([])
@@ -784,16 +782,6 @@ function App() {
         if (subjectContains) {
           const subjectText = `${book.subject ?? ''} ${book.subjects ?? ''}`.toLowerCase()
           if (!subjectText.includes(subjectContains.toLowerCase())) {
-            return false
-          }
-        }
-        if (literaryformFilter) {
-          if (String(book.literaryform ?? '').toLowerCase() !== literaryformFilter.toLowerCase()) {
-            return false
-          }
-        }
-        if (deweyPrefix) {
-          if (!String(book.ddc ?? '').startsWith(deweyPrefix)) {
             return false
           }
         }
@@ -1132,17 +1120,6 @@ function App() {
               value={subjectContains}
               onChange={(event) => setSubjectContains(event.target.value)}
             />
-          </label>
-          <label>
-            Literaryform eksakt
-            <input
-              value={literaryformFilter}
-              onChange={(event) => setLiteraryformFilter(event.target.value)}
-            />
-          </label>
-          <label>
-            Dewey prefix
-            <input value={deweyPrefix} onChange={(event) => setDeweyPrefix(event.target.value)} />
           </label>
         </div>
         <button disabled={isRunning || !csvLoaded} onClick={() => void runAnalysis()}>
