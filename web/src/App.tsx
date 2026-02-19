@@ -22,6 +22,8 @@ type YearSummaryRow = {
 type DetailRow = {
   year: number
   dhlabid: number | null
+  author: string
+  title: string
   count: number
   total: number
 }
@@ -196,6 +198,13 @@ function App() {
 
   const [summaryRows, setSummaryRows] = useState<YearSummaryRow[]>([])
   const [detailRows, setDetailRows] = useState<DetailRow[]>([])
+  const [overallStats, setOverallStats] = useState<{
+    documents: number
+    nCounts: number
+    mean: number | null
+    median: number | null
+    std: number | null
+  } | null>(null)
 
   useEffect(() => {
     const loadCsv = async () => {
@@ -254,6 +263,7 @@ function App() {
     setIsRunning(true)
     setError(null)
     setInfo('')
+    setOverallStats(null)
 
     try {
       if (endYear < startYear) {
@@ -303,9 +313,19 @@ function App() {
 
       const summary: YearSummaryRow[] = []
       const details: DetailRow[] = []
+      const allCounts: number[] = []
+      const uniqueDocuments = new Set<string>()
+      const bookByDhlabid = new Map<number, BookRow>()
+      enrichedBooks.forEach((book) => {
+        if (book.dhlabid !== undefined) {
+          bookByDhlabid.set(book.dhlabid, book)
+        }
+      })
+
       for (let year = startYear; year <= endYear; year += 1) {
         const yearBooks = filtered.filter((book) => parseYear(book.year) === year)
         const yearUrns = yearBooks.map((book) => book.urn)
+        yearBooks.forEach((book) => uniqueDocuments.add(book.urn))
         if (yearUrns.length === 0) {
           summary.push({
             year,
@@ -327,11 +347,17 @@ function App() {
         const freqRows = Array.isArray(raw) ? raw.filter((row): row is unknown[] => Array.isArray(row)) : []
         freqRows.forEach((row) => {
           if (row.length < 4) return
+          const dhlabid = parseDhlabid(row[0] as string | number | undefined) ?? null
+          const matchedBook = dhlabid !== null ? bookByDhlabid.get(dhlabid) : undefined
+          const count = Number(row[2])
+          const total = Number(row[3])
           details.push({
             year,
-            dhlabid: parseDhlabid(row[0] as string | number | undefined) ?? null,
-            count: Number(row[2]),
-            total: Number(row[3]),
+            dhlabid,
+            author: String(matchedBook?.author ?? ''),
+            title: String(matchedBook?.title ?? ''),
+            count,
+            total,
           })
         })
 
@@ -339,6 +365,7 @@ function App() {
           .filter((row) => String(row[1]) === TRIGGER_WORD)
           .map((row) => Number(row[2]))
           .filter((value) => Number.isFinite(value))
+        allCounts.push(...values)
         const stats = toStats(values)
         summary.push({
           year,
@@ -350,9 +377,24 @@ function App() {
         })
       }
 
+      const totalStats = toStats(allCounts)
+      setOverallStats({
+        documents: uniqueDocuments.size,
+        nCounts: allCounts.length,
+        mean: totalStats.mean,
+        median: totalStats.median,
+        std: totalStats.std,
+      })
+
+      const sortedDetails = [...details].sort((a, b) => {
+        if (a.year !== b.year) return a.year - b.year
+        if (b.count !== a.count) return b.count - a.count
+        return a.title.localeCompare(b.title)
+      })
+
       setSummaryRows(summary)
-      setDetailRows(details)
-      setInfo(`Klar: ${summary.length} årsrader og ${details.length} frekvensrader.`)
+      setDetailRows(sortedDetails)
+      setInfo(`Klar: ${summary.length} årsrader, ${uniqueDocuments.size} dokumenter, ${details.length} frekvensrader.`)
     } catch (runError) {
       setError(runError instanceof Error ? runError.message : 'Analyse feilet')
     } finally {
@@ -431,6 +473,39 @@ function App() {
       </section>
 
       <section className="panel">
+        <h2>Aggregert for valgt intervall</h2>
+        <div className="tableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Dokumenter</th>
+                <th>N</th>
+                <th>Mean</th>
+                <th>Median</th>
+                <th>Std</th>
+              </tr>
+            </thead>
+            <tbody>
+              {!overallStats && (
+                <tr>
+                  <td colSpan={5}>Ingen aggregert statistikk enda.</td>
+                </tr>
+              )}
+              {overallStats && (
+                <tr>
+                  <td>{overallStats.documents}</td>
+                  <td>{overallStats.nCounts}</td>
+                  <td>{overallStats.mean === null ? '' : overallStats.mean.toFixed(4)}</td>
+                  <td>{overallStats.median === null ? '' : overallStats.median.toFixed(4)}</td>
+                  <td>{overallStats.std === null ? '' : overallStats.std.toFixed(4)}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="panel">
         <h2>Summary per år (mean, median, std)</h2>
         <div className="tableWrap">
           <table>
@@ -466,21 +541,25 @@ function App() {
       </section>
 
       <section className="panel">
-        <h2>Detaljrader (forste 200)</h2>
+        <h2>Sorterte dokumentrader per år (forste 300)</h2>
         <div className="tableWrap">
           <table>
             <thead>
               <tr>
                 <th>År</th>
+                <th>Forfatter</th>
+                <th>Tittel</th>
                 <th>dhlabid</th>
                 <th>Count</th>
                 <th>Total</th>
               </tr>
             </thead>
             <tbody>
-              {detailRows.slice(0, 200).map((row, index) => (
+              {detailRows.slice(0, 300).map((row, index) => (
                 <tr key={`${row.year}-${row.dhlabid}-${index}`}>
                   <td>{row.year}</td>
+                  <td>{row.author}</td>
+                  <td>{row.title}</td>
                   <td>{row.dhlabid ?? ''}</td>
                   <td>{row.count}</td>
                   <td>{row.total}</td>
