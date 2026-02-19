@@ -394,6 +394,10 @@ function DiffTrendPlot({ rows }: { rows: BinDifferenceRow[] }) {
   }
   const yScale = (value: number) =>
     height - padding - ((value - minY) / ySpan) * (height - padding * 2)
+  const yTicks = 5
+  const yTickValues = Array.from({ length: yTicks + 1 }, (_, i) => minY + (ySpan * i) / yTicks)
+  const formatTick = (value: number) =>
+    new Intl.NumberFormat('nb-NO', { maximumFractionDigits: 0 }).format(value)
 
   const linePoints = points
     .map((p) => `${xScale(p.binIndex)},${yScale(p.diff)}`)
@@ -404,6 +408,17 @@ function DiffTrendPlot({ rows }: { rows: BinDifferenceRow[] }) {
       <svg viewBox={`0 0 ${width} ${height}`} className="chart">
         <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="#94a3b8" />
         <line x1={padding} y1={padding} x2={padding} y2={height - padding} stroke="#94a3b8" />
+        {yTickValues.map((tick) => {
+          const y = yScale(tick)
+          return (
+            <g key={`ytick-${tick.toFixed(2)}`}>
+              <line x1={padding} y1={y} x2={width - padding} y2={y} stroke="#e5e7eb" />
+              <text x={padding - 8} y={y + 4} textAnchor="end" fontSize="11" fill="#475569">
+                {formatTick(tick)}
+              </text>
+            </g>
+          )
+        })}
         <line
           x1={padding}
           y1={yScale(0)}
