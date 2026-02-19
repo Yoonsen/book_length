@@ -36,7 +36,7 @@ type DetailRow = {
   total: number
 }
 
-const CSV_PATH = '/Helenes_korpusdata.csv'
+const CSV_PATH = `${import.meta.env.BASE_URL}Helenes_korpusdata.csv`
 const METADATA_URL = 'https://api.nb.no/dhlab/get_metadata'
 const FREQUENCIES_URL = 'https://api.nb.no/dhlab/frequencies'
 
