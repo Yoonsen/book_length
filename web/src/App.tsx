@@ -1123,7 +1123,7 @@ function App() {
           </label>
         </div>
         <button disabled={isRunning || !csvLoaded} onClick={() => void runAnalysis()}>
-          {isRunning ? 'Kjorer...' : 'Kjor analyse'}
+          {isRunning ? 'Kjører...' : 'Kjør analyse'}
         </button>
         <button
           disabled={!csvLoaded || (summaryRows.length === 0 && detailRows.length === 0)}
