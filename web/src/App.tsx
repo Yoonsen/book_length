@@ -357,6 +357,97 @@ function GenderErrorBarPlot({ rows }: { rows: BinGenderSummaryRow[] }) {
   )
 }
 
+function DiffTrendPlot({ rows }: { rows: BinDifferenceRow[] }) {
+  const width = 900
+  const height = 280
+  const padding = 36
+
+  const points = rows
+    .filter((row) => row.meanDiffFemaleMinusMale !== null)
+    .map((row) => ({
+      binIndex: row.binIndex,
+      binLabel: row.binLabel,
+      diff: row.meanDiffFemaleMinusMale as number,
+      diffSe: row.diffSe,
+    }))
+
+  if (points.length === 0) {
+    return <p>Ingen diff-data å plotte enda.</p>
+  }
+
+  const uniqueBins = [...new Set(points.map((p) => p.binIndex))].sort((a, b) => a - b)
+  const yCandidates = points.flatMap((p) =>
+    p.diffSe !== null ? [p.diff - p.diffSe, p.diff, p.diff + p.diffSe] : [p.diff],
+  )
+  const minY = Math.min(...yCandidates, 0)
+  const maxY = Math.max(...yCandidates, 0)
+  const ySpan = maxY - minY || 1
+
+  const xScale = (binIndex: number) => {
+    if (uniqueBins.length <= 1) return width / 2
+    const idx = uniqueBins.indexOf(binIndex)
+    return padding + (idx / (uniqueBins.length - 1)) * (width - padding * 2)
+  }
+  const yScale = (value: number) =>
+    height - padding - ((value - minY) / ySpan) * (height - padding * 2)
+
+  const linePoints = points
+    .map((p) => `${xScale(p.binIndex)},${yScale(p.diff)}`)
+    .join(' ')
+
+  return (
+    <div className="chartWrap">
+      <svg viewBox={`0 0 ${width} ${height}`} className="chart">
+        <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="#94a3b8" />
+        <line x1={padding} y1={padding} x2={padding} y2={height - padding} stroke="#94a3b8" />
+        <line
+          x1={padding}
+          y1={yScale(0)}
+          x2={width - padding}
+          y2={yScale(0)}
+          stroke="#ef4444"
+          strokeDasharray="4 4"
+        />
+        <polyline fill="none" stroke="#7c3aed" strokeWidth="2" points={linePoints} />
+
+        {points.map((p) => {
+          const x = xScale(p.binIndex)
+          const y = yScale(p.diff)
+          return (
+            <g key={`diff-${p.binIndex}`}>
+              {p.diffSe !== null && (
+                <>
+                  <line x1={x} y1={yScale(p.diff - p.diffSe)} x2={x} y2={yScale(p.diff + p.diffSe)} stroke="#7c3aed" strokeWidth="2" />
+                  <line x1={x - 4} y1={yScale(p.diff - p.diffSe)} x2={x + 4} y2={yScale(p.diff - p.diffSe)} stroke="#7c3aed" strokeWidth="2" />
+                  <line x1={x - 4} y1={yScale(p.diff + p.diffSe)} x2={x + 4} y2={yScale(p.diff + p.diffSe)} stroke="#7c3aed" strokeWidth="2" />
+                </>
+              )}
+              <circle cx={x} cy={y} r="3.5" fill="#7c3aed" />
+            </g>
+          )
+        })}
+
+        {points.map((p) => (
+          <text
+            key={`xlabel-${p.binIndex}`}
+            x={xScale(p.binIndex)}
+            y={height - 10}
+            textAnchor="middle"
+            fontSize="11"
+            fill="#475569"
+          >
+            {p.binLabel}
+          </text>
+        ))}
+      </svg>
+      <div className="legend">
+        <span><i className="dot diff" /> diff (kvinner - menn)</span>
+        <span><i className="dot std" /> diff SE (pinner)</span>
+      </div>
+    </div>
+  )
+}
+
 function App() {
   const [books, setBooks] = useState<BookRow[]>([])
   const [csvLoaded, setCsvLoaded] = useState(false)
@@ -1159,6 +1250,7 @@ function App() {
 
       <section className="panel">
         <h2>Forskjell kvinner - menn per bin (dokumentlengde)</h2>
+        <DiffTrendPlot rows={binDifferenceRows} />
         <div className="tableWrap">
           <table>
             <thead>

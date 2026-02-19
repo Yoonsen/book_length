@@ -147,6 +147,7 @@ button:disabled {
 
 .dot.female { background: #db2777; }
 .dot.male { background: #2563eb; }
+.dot.diff { background: #7c3aed; }
 .dot.std { background: #dc2626; }
 
 table {
