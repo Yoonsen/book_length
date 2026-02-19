@@ -395,7 +395,7 @@ function App() {
       const byGenderSummary: BinGenderSummaryRow[] = []
       const differences: BinDifferenceRow[] = []
       const longestRows: TopLongestRow[] = []
-      const allCounts: number[] = []
+      const allTotals: number[] = []
       const uniqueDocuments = new Set<string>()
       const bookByDhlabid = new Map<number, BookRow>()
       books.forEach((book) => {
@@ -454,9 +454,9 @@ function App() {
 
         const values = freqRows
           .filter((row) => String(row[1]) === TRIGGER_WORD)
-          .map((row) => Number(row[2]))
+          .map((row) => Number(row[3]))
           .filter((value) => Number.isFinite(value))
-        allCounts.push(...values)
+        allTotals.push(...values)
         const stats = toStats(values)
         summary.push({
           binIndex: bin.index,
@@ -478,7 +478,7 @@ function App() {
 
         ;(['female', 'male', 'unknown'] as const).forEach((gender) => {
           const groupRows = binDetails.filter((row) => row.gender === gender)
-          const groupValues = groupRows.map((row) => row.count).filter((value) => Number.isFinite(value))
+          const groupValues = groupRows.map((row) => row.total).filter((value) => Number.isFinite(value))
           const groupStats = toStats(groupValues)
           statsByGender[gender] = {
             mean: groupStats.mean,
@@ -530,10 +530,10 @@ function App() {
         })
       }
 
-      const totalStats = toStats(allCounts)
+      const totalStats = toStats(allTotals)
       setOverallStats({
         documents: uniqueDocuments.size,
-        nCounts: allCounts.length,
+        nCounts: allTotals.length,
         mean: totalStats.mean,
         median: totalStats.median,
         std: totalStats.std,
@@ -541,7 +541,7 @@ function App() {
 
       const sortedDetails = [...details].sort((a, b) => {
         if (a.year !== b.year) return a.year - b.year
-        if (b.count !== a.count) return b.count - a.count
+        if (b.total !== a.total) return b.total - a.total
         return a.title.localeCompare(b.title)
       })
 
@@ -562,7 +562,7 @@ function App() {
     <div className="page">
       <h1>Frekvensanalyse med bins</h1>
       <p className="lead">
-        Henter metadata, filtrerer bokutvalg, og plotter dokumentfrekvens (triggerord: {TRIGGER_WORD}) over bins i valgt årsintervall.
+        Henter metadata, filtrerer bokutvalg, og plotter dokumentlengde (`total`) over bins i valgt årsintervall. Triggerordet "{TRIGGER_WORD}" brukes kun for å hente dokumentradene.
       </p>
 
       {!csvLoaded && !error && <p className="status info">Laster korpus...</p>}
@@ -655,16 +655,16 @@ function App() {
       </section>
 
       <section className="panel">
-        <h2>Aggregert for valgt intervall</h2>
+        <h2>Aggregert dokumentlengde for valgt intervall</h2>
         <div className="tableWrap">
           <table>
             <thead>
               <tr>
                 <th>Dokumenter</th>
                 <th>N</th>
-                <th>Mean</th>
-                <th>Median</th>
-                <th>Std</th>
+                <th>Mean lengde</th>
+                <th>Median lengde</th>
+                <th>Std lengde</th>
               </tr>
             </thead>
             <tbody>
@@ -688,7 +688,7 @@ function App() {
       </section>
 
       <section className="panel">
-        <h2>Summary per bin (mean, median, std)</h2>
+        <h2>Summary per bin (dokumentlengde)</h2>
         <div className="tableWrap">
           <table>
             <thead>
@@ -697,9 +697,9 @@ function App() {
                 <th>Årsintervall</th>
                 <th>Dokumenter</th>
                 <th>N</th>
-                <th>Mean</th>
-                <th>Median</th>
-                <th>Std</th>
+                <th>Mean lengde</th>
+                <th>Median lengde</th>
+                <th>Std lengde</th>
               </tr>
             </thead>
             <tbody>
@@ -725,7 +725,7 @@ function App() {
       </section>
 
       <section className="panel">
-        <h2>Mean og std per kjønn i hver bin</h2>
+        <h2>Mean og std for dokumentlengde per kjønn i hver bin</h2>
         <div className="tableWrap">
           <table>
             <thead>
@@ -734,8 +734,8 @@ function App() {
                 <th>Årsintervall</th>
                 <th>Kjønn</th>
                 <th>Dokumenter</th>
-                <th>Mean</th>
-                <th>Std</th>
+                <th>Mean lengde</th>
+                <th>Std lengde</th>
               </tr>
             </thead>
             <tbody>
@@ -760,18 +760,18 @@ function App() {
       </section>
 
       <section className="panel">
-        <h2>Forskjell kvinner - menn per bin</h2>
+        <h2>Forskjell kvinner - menn per bin (dokumentlengde)</h2>
         <div className="tableWrap">
           <table>
             <thead>
               <tr>
                 <th>Bin</th>
                 <th>Årsintervall</th>
-                <th>Kvinner mean</th>
-                <th>Menn mean</th>
+                <th>Kvinner mean lengde</th>
+                <th>Menn mean lengde</th>
                 <th>Diff (kvinner-menn)</th>
-                <th>Kvinner std</th>
-                <th>Menn std</th>
+                <th>Kvinner std lengde</th>
+                <th>Menn std lengde</th>
               </tr>
             </thead>
             <tbody>
