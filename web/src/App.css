@@ -145,8 +145,8 @@ button:disabled {
   margin-right: 0.35rem;
 }
 
-.dot.mean { background: #2563eb; }
-.dot.median { background: #16a34a; }
+.dot.female { background: #db2777; }
+.dot.male { background: #2563eb; }
 .dot.std { background: #dc2626; }
 
 table {

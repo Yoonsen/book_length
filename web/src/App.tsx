@@ -185,44 +185,97 @@ function toStats(values: number[]): { mean: number | null; median: number | null
   return { mean, median, std }
 }
 
-function StatsPlot({ rows }: { rows: BinSummaryRow[] }) {
+function GenderErrorBarPlot({ rows }: { rows: BinGenderSummaryRow[] }) {
   const width = 900
   const height = 280
-  const padding = 32
+  const padding = 36
 
-  const yValues = rows.flatMap((row) => [row.mean, row.median, row.std]).filter((value): value is number => value !== null)
-  if (rows.length === 0 || yValues.length === 0) {
-    return <p>Ingen datapunkter for plott enda.</p>
+  const genderRows = rows.filter((row) => row.gender === 'female' || row.gender === 'male')
+  if (genderRows.length === 0) {
+    return <p>Ingen datapunkter for kvinner/menn enda.</p>
   }
 
-  const minBin = rows[0].binIndex
-  const maxBin = rows[rows.length - 1].binIndex
-  const yMax = Math.max(...yValues)
-  const yScale = (value: number) => height - padding - (value / (yMax || 1)) * (height - padding * 2)
+  const uniqueBins = [...new Set(genderRows.map((row) => row.binIndex))].sort((a, b) => a - b)
+  const binToLabel = new Map<number, string>()
+  genderRows.forEach((row) => {
+    if (!binToLabel.has(row.binIndex)) {
+      binToLabel.set(row.binIndex, row.binLabel)
+    }
+  })
+
+  const yMax = Math.max(
+    ...genderRows.map((row) => {
+      const mean = row.mean ?? 0
+      const std = row.std ?? 0
+      return mean + std
+    }),
+    1,
+  )
+  const yScale = (value: number) => height - padding - (value / yMax) * (height - padding * 2)
   const xScale = (binIndex: number) => {
-    if (maxBin === minBin) return width / 2
-    return padding + ((binIndex - minBin) / (maxBin - minBin)) * (width - padding * 2)
+    if (uniqueBins.length <= 1) return width / 2
+    const idx = uniqueBins.indexOf(binIndex)
+    return padding + (idx / (uniqueBins.length - 1)) * (width - padding * 2)
   }
 
-  const lineFor = (field: 'mean' | 'median' | 'std') =>
-    rows
-      .filter((row) => row[field] !== null)
-      .map((row) => `${xScale(row.binIndex)},${yScale(row[field] as number)}`)
-      .join(' ')
+  const femaleRows = genderRows.filter((row) => row.gender === 'female')
+  const maleRows = genderRows.filter((row) => row.gender === 'male')
 
   return (
     <div className="chartWrap">
       <svg viewBox={`0 0 ${width} ${height}`} className="chart">
         <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="#94a3b8" />
         <line x1={padding} y1={padding} x2={padding} y2={height - padding} stroke="#94a3b8" />
-        <polyline fill="none" stroke="#2563eb" strokeWidth="2" points={lineFor('mean')} />
-        <polyline fill="none" stroke="#16a34a" strokeWidth="2" points={lineFor('median')} />
-        <polyline fill="none" stroke="#dc2626" strokeWidth="2" points={lineFor('std')} />
+
+        {femaleRows.map((row) => {
+          if (row.mean === null || row.std === null) return null
+          const x = xScale(row.binIndex) - 10
+          const yMean = yScale(row.mean)
+          const yLow = yScale(Math.max(0, row.mean - row.std))
+          const yHigh = yScale(row.mean + row.std)
+          return (
+            <g key={`female-${row.binIndex}`}>
+              <line x1={x} y1={yLow} x2={x} y2={yHigh} stroke="#db2777" strokeWidth="2" />
+              <line x1={x - 4} y1={yLow} x2={x + 4} y2={yLow} stroke="#db2777" strokeWidth="2" />
+              <line x1={x - 4} y1={yHigh} x2={x + 4} y2={yHigh} stroke="#db2777" strokeWidth="2" />
+              <circle cx={x} cy={yMean} r="3.5" fill="#db2777" />
+            </g>
+          )
+        })}
+
+        {maleRows.map((row) => {
+          if (row.mean === null || row.std === null) return null
+          const x = xScale(row.binIndex) + 10
+          const yMean = yScale(row.mean)
+          const yLow = yScale(Math.max(0, row.mean - row.std))
+          const yHigh = yScale(row.mean + row.std)
+          return (
+            <g key={`male-${row.binIndex}`}>
+              <line x1={x} y1={yLow} x2={x} y2={yHigh} stroke="#2563eb" strokeWidth="2" />
+              <line x1={x - 4} y1={yLow} x2={x + 4} y2={yLow} stroke="#2563eb" strokeWidth="2" />
+              <line x1={x - 4} y1={yHigh} x2={x + 4} y2={yHigh} stroke="#2563eb" strokeWidth="2" />
+              <circle cx={x} cy={yMean} r="3.5" fill="#2563eb" />
+            </g>
+          )
+        })}
+
+        {uniqueBins.map((binIndex) => (
+          <text
+            key={`xlabel-${binIndex}`}
+            x={xScale(binIndex)}
+            y={height - 10}
+            textAnchor="middle"
+            fontSize="11"
+            fill="#475569"
+          >
+            {binToLabel.get(binIndex)}
+          </text>
+        ))}
       </svg>
       <div className="legend">
-        <span><i className="dot mean" /> mean</span>
-        <span><i className="dot median" /> median</span>
-        <span><i className="dot std" /> std</span>
+        <span><i className="dot female" /> kvinner mean</span>
+        <span><i className="dot male" /> menn mean</span>
+        <span><i className="dot std" /> std (pinner)</span>
       </div>
     </div>
   )
@@ -650,8 +703,8 @@ function App() {
       {info && <p className="status ok">{info}</p>}
 
       <section className="panel">
-        <h2>Plott</h2>
-        <StatsPlot rows={summaryRows} />
+        <h2>Kvinner mot menn (mean +- std)</h2>
+        <GenderErrorBarPlot rows={binGenderSummaryRows} />
       </section>
 
       <section className="panel">
