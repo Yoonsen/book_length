@@ -10,8 +10,11 @@ type BookRow = {
   [key: string]: string | number | undefined
 }
 
-type YearSummaryRow = {
-  year: number
+type BinSummaryRow = {
+  binIndex: number
+  binLabel: string
+  startYear: number
+  endYear: number
   documents: number
   nCounts: number
   mean: number | null
@@ -102,6 +105,36 @@ async function fetchFrequencyRows(urns: string[], cutoff: number): Promise<unkno
   return rows
 }
 
+type YearBin = {
+  index: number
+  startYear: number
+  endYear: number
+  label: string
+}
+
+function buildYearBins(startYear: number, endYear: number, binCount: number): YearBin[] {
+  const totalYears = endYear - startYear + 1
+  const safeBinCount = Math.max(1, Math.min(binCount, totalYears))
+  const baseSize = Math.floor(totalYears / safeBinCount)
+  const remainder = totalYears % safeBinCount
+
+  const bins: YearBin[] = []
+  let cursor = startYear
+  for (let i = 0; i < safeBinCount; i += 1) {
+    const size = baseSize + (i < remainder ? 1 : 0)
+    const binStart = cursor
+    const binEnd = cursor + size - 1
+    bins.push({
+      index: i + 1,
+      startYear: binStart,
+      endYear: binEnd,
+      label: `${binStart}-${binEnd}`,
+    })
+    cursor = binEnd + 1
+  }
+  return bins
+}
+
 function toStats(values: number[]): { mean: number | null; median: number | null; std: number | null } {
   if (values.length === 0) {
     return { mean: null, median: null, std: null }
@@ -117,7 +150,7 @@ function toStats(values: number[]): { mean: number | null; median: number | null
   return { mean, median, std }
 }
 
-function StatsPlot({ rows }: { rows: YearSummaryRow[] }) {
+function StatsPlot({ rows }: { rows: BinSummaryRow[] }) {
   const width = 900
   const height = 280
   const padding = 32
@@ -127,19 +160,19 @@ function StatsPlot({ rows }: { rows: YearSummaryRow[] }) {
     return <p>Ingen datapunkter for plott enda.</p>
   }
 
-  const minYear = rows[0].year
-  const maxYear = rows[rows.length - 1].year
+  const minBin = rows[0].binIndex
+  const maxBin = rows[rows.length - 1].binIndex
   const yMax = Math.max(...yValues)
   const yScale = (value: number) => height - padding - (value / (yMax || 1)) * (height - padding * 2)
-  const xScale = (year: number) => {
-    if (maxYear === minYear) return width / 2
-    return padding + ((year - minYear) / (maxYear - minYear)) * (width - padding * 2)
+  const xScale = (binIndex: number) => {
+    if (maxBin === minBin) return width / 2
+    return padding + ((binIndex - minBin) / (maxBin - minBin)) * (width - padding * 2)
   }
 
   const lineFor = (field: 'mean' | 'median' | 'std') =>
     rows
       .filter((row) => row[field] !== null)
-      .map((row) => `${xScale(row.year)},${yScale(row[field] as number)}`)
+      .map((row) => `${xScale(row.binIndex)},${yScale(row[field] as number)}`)
       .join(' ')
 
   return (
@@ -169,14 +202,14 @@ function App() {
 
   const [startYear, setStartYear] = useState(2010)
   const [endYear, setEndYear] = useState(2025)
-  const [cutoff, setCutoff] = useState(1)
+  const [binCount, setBinCount] = useState(3)
 
   const [genderFilter, setGenderFilter] = useState('all')
   const [subjectContains, setSubjectContains] = useState('')
   const [literaryformFilter, setLiteraryformFilter] = useState('')
   const [deweyPrefix, setDeweyPrefix] = useState('')
 
-  const [summaryRows, setSummaryRows] = useState<YearSummaryRow[]>([])
+  const [summaryRows, setSummaryRows] = useState<BinSummaryRow[]>([])
   const [detailRows, setDetailRows] = useState<DetailRow[]>([])
   const [overallStats, setOverallStats] = useState<{
     documents: number
@@ -283,6 +316,9 @@ function App() {
       if (endYear < startYear) {
         throw new Error('Sluttår må være større enn eller lik startår.')
       }
+      if (binCount < 1) {
+        throw new Error('Antall bins må være minst 1.')
+      }
 
       const filtered = books.filter((book) => {
         if (genderFilter !== 'all' && String(book.gender ?? '').toLowerCase() !== genderFilter.toLowerCase()) {
@@ -307,7 +343,7 @@ function App() {
         return true
       })
 
-      const summary: YearSummaryRow[] = []
+      const summary: BinSummaryRow[] = []
       const details: DetailRow[] = []
       const allCounts: number[] = []
       const uniqueDocuments = new Set<string>()
@@ -318,13 +354,22 @@ function App() {
         }
       })
 
-      for (let year = startYear; year <= endYear; year += 1) {
-        const yearBooks = filtered.filter((book) => parseYear(book.year) === year)
-        const yearUrns = yearBooks.map((book) => book.urn)
-        yearBooks.forEach((book) => uniqueDocuments.add(book.urn))
-        if (yearUrns.length === 0) {
+      const bins = buildYearBins(startYear, endYear, binCount)
+
+      for (const bin of bins) {
+        const binBooks = filtered.filter((book) => {
+          const year = parseYear(book.year)
+          return year !== undefined && year >= bin.startYear && year <= bin.endYear
+        })
+        const binUrns = binBooks.map((book) => book.urn)
+        binBooks.forEach((book) => uniqueDocuments.add(book.urn))
+
+        if (binUrns.length === 0) {
           summary.push({
-            year,
+            binIndex: bin.index,
+            binLabel: bin.label,
+            startYear: bin.startYear,
+            endYear: bin.endYear,
             documents: 0,
             nCounts: 0,
             mean: null,
@@ -334,7 +379,7 @@ function App() {
           continue
         }
 
-        const freqRows = await fetchFrequencyRows(yearUrns, cutoff)
+        const freqRows = await fetchFrequencyRows(binUrns, 1)
         freqRows.forEach((row) => {
           if (row.length < 4) return
           const dhlabid = parseDhlabid(row[0] as string | number | undefined) ?? null
@@ -342,7 +387,7 @@ function App() {
           const count = Number(row[2])
           const total = Number(row[3])
           details.push({
-            year,
+            year: matchedBook?.year ? Number(matchedBook.year) : bin.startYear,
             dhlabid,
             author: String(matchedBook?.author ?? ''),
             title: String(matchedBook?.title ?? ''),
@@ -358,8 +403,11 @@ function App() {
         allCounts.push(...values)
         const stats = toStats(values)
         summary.push({
-          year,
-          documents: yearUrns.length,
+          binIndex: bin.index,
+          binLabel: bin.label,
+          startYear: bin.startYear,
+          endYear: bin.endYear,
+          documents: binUrns.length,
           nCounts: values.length,
           mean: stats.mean,
           median: stats.median,
@@ -384,7 +432,7 @@ function App() {
 
       setSummaryRows(summary)
       setDetailRows(sortedDetails)
-      setInfo(`Klar: ${summary.length} årsrader, ${uniqueDocuments.size} dokumenter, ${details.length} frekvensrader.`)
+      setInfo(`Klar: ${summary.length} bins, ${uniqueDocuments.size} dokumenter, ${details.length} frekvensrader.`)
     } catch (runError) {
       setError(runError instanceof Error ? runError.message : 'Analyse feilet')
     } finally {
@@ -394,9 +442,9 @@ function App() {
 
   return (
     <div className="page">
-      <h1>Frekvensanalyse per år</h1>
+      <h1>Frekvensanalyse med bins</h1>
       <p className="lead">
-        Henter metadata, filtrerer bokutvalg, og plotter dokumentfrekvens (triggerord: {TRIGGER_WORD}) over år.
+        Henter metadata, filtrerer bokutvalg, og plotter dokumentfrekvens (triggerord: {TRIGGER_WORD}) over bins i valgt årsintervall.
       </p>
 
       {!csvLoaded && !error && <p className="status info">Laster korpus...</p>}
@@ -437,12 +485,12 @@ function App() {
             <input type="number" value={endYear} onChange={(event) => setEndYear(Number(event.target.value))} />
           </label>
           <label>
-            Cutoff
+            Antall bins
             <input
               type="number"
-              value={cutoff}
+              value={binCount}
               min={1}
-              onChange={(event) => setCutoff(Number(event.target.value))}
+              onChange={(event) => setBinCount(Number(event.target.value))}
             />
           </label>
           <label>
@@ -522,12 +570,13 @@ function App() {
       </section>
 
       <section className="panel">
-        <h2>Summary per år (mean, median, std)</h2>
+        <h2>Summary per bin (mean, median, std)</h2>
         <div className="tableWrap">
           <table>
             <thead>
               <tr>
-                <th>År</th>
+                <th>Bin</th>
+                <th>Årsintervall</th>
                 <th>Dokumenter</th>
                 <th>N</th>
                 <th>Mean</th>
@@ -538,12 +587,13 @@ function App() {
             <tbody>
               {summaryRows.length === 0 && (
                 <tr>
-                  <td colSpan={6}>Ingen resultater enda.</td>
+                  <td colSpan={7}>Ingen resultater enda.</td>
                 </tr>
               )}
               {summaryRows.map((row, index) => (
-                <tr key={`${row.year}-${index}`}>
-                  <td>{row.year}</td>
+                <tr key={`${row.binIndex}-${index}`}>
+                  <td>{row.binIndex}</td>
+                  <td>{row.binLabel}</td>
                   <td>{row.documents}</td>
                   <td>{row.nCounts}</td>
                   <td>{row.mean === null ? '' : row.mean.toFixed(4)}</td>
