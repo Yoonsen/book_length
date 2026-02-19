@@ -59,6 +59,7 @@ type BinDifferenceRow = {
   diffSe: number | null
   zScore: number | null
   pValueTwoSided: number | null
+  significance: string
 }
 
 type TopLongestRow = {
@@ -218,6 +219,14 @@ function normalCdf(x: number): number {
 function twoSidedPValueFromZ(z: number): number {
   const p = 2 * (1 - normalCdf(Math.abs(z)))
   return Math.max(0, Math.min(1, p))
+}
+
+function significanceLabel(pValue: number | null): string {
+  if (pValue === null || !Number.isFinite(pValue)) return 'ns'
+  if (pValue < 0.001) return '***'
+  if (pValue < 0.01) return '**'
+  if (pValue < 0.05) return '*'
+  return 'ns'
 }
 
 function GenderErrorBarPlot({ rows }: { rows: BinGenderSummaryRow[] }) {
@@ -516,6 +525,7 @@ function App() {
         diff_se: row.diffSe,
         z: row.zScore,
         p_two_sided: row.pValueTwoSided,
+        significance: row.significance,
       }))
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(diffSheet), 'Diff_bin')
     }
@@ -779,6 +789,23 @@ function App() {
                   return twoSidedPValueFromZ(z)
                 })()
               : null,
+          significance:
+            statsByGender.female.mean !== null &&
+            statsByGender.male.mean !== null &&
+            statsByGender.female.std !== null &&
+            statsByGender.male.std !== null &&
+            statsByGender.female.documents > 0 &&
+            statsByGender.male.documents > 0
+              ? (() => {
+                  const se = Math.sqrt(
+                    (statsByGender.female.std ** 2) / statsByGender.female.documents +
+                      (statsByGender.male.std ** 2) / statsByGender.male.documents,
+                  )
+                  if (!Number.isFinite(se) || se === 0) return 'ns'
+                  const z = (statsByGender.female.mean - statsByGender.male.mean) / se
+                  return significanceLabel(twoSidedPValueFromZ(z))
+                })()
+              : 'ns',
         })
 
         ;(['female', 'male'] as const).forEach((gender) => {
@@ -1070,6 +1097,7 @@ function App() {
                 <th>Menn N</th>
                 <th>Kvinner mean lengde</th>
                 <th>Menn mean lengde</th>
+                <th>Signifikans</th>
                 <th>Diff (kvinner-menn)</th>
                 <th>Kvinner std lengde</th>
                 <th>Menn std lengde</th>
@@ -1083,7 +1111,7 @@ function App() {
             <tbody>
               {binDifferenceRows.length === 0 && (
                 <tr>
-                  <td colSpan={14}>Ingen differanseberegning enda.</td>
+                  <td colSpan={15}>Ingen differanseberegning enda.</td>
                 </tr>
               )}
               {binDifferenceRows.map((row, index) => (
@@ -1094,6 +1122,7 @@ function App() {
                   <td>{row.maleN}</td>
                   <td>{row.femaleMean === null ? '' : row.femaleMean.toFixed(4)}</td>
                   <td>{row.maleMean === null ? '' : row.maleMean.toFixed(4)}</td>
+                  <td>{row.significance}</td>
                   <td>{row.meanDiffFemaleMinusMale === null ? '' : row.meanDiffFemaleMinusMale.toFixed(4)}</td>
                   <td>{row.femaleStd === null ? '' : row.femaleStd.toFixed(4)}</td>
                   <td>{row.maleStd === null ? '' : row.maleStd.toFixed(4)}</td>
