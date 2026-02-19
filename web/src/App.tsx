@@ -379,8 +379,12 @@ function DiffTrendPlot({ rows }: { rows: BinDifferenceRow[] }) {
   const yCandidates = points.flatMap((p) =>
     p.diffSe !== null ? [p.diff - p.diffSe, p.diff, p.diff + p.diffSe] : [p.diff],
   )
-  const minY = Math.min(...yCandidates, 0)
-  const maxY = Math.max(...yCandidates, 0)
+  const rawMinY = Math.min(...yCandidates, 0)
+  const rawMaxY = Math.max(...yCandidates, 0)
+  const rawSpan = rawMaxY - rawMinY || 1
+  const margin = rawSpan * 0.08
+  const minY = rawMinY - margin
+  const maxY = rawMaxY + margin
   const ySpan = maxY - minY || 1
 
   const xScale = (binIndex: number) => {
@@ -444,6 +448,9 @@ function DiffTrendPlot({ rows }: { rows: BinDifferenceRow[] }) {
         <span><i className="dot diff" /> diff (kvinner - menn)</span>
         <span><i className="dot std" /> diff SE (pinner)</span>
       </div>
+      <p className="plotNote">
+        Stiplet linje er null (ingen forskjell). Punkt under linjen betyr at kvinner har kortere dokumentlengde enn menn i den binen.
+      </p>
     </div>
   )
 }

@@ -137,6 +137,12 @@ button:disabled {
   font-size: 0.9rem;
 }
 
+.plotNote {
+  margin: 0.45rem 0 0;
+  font-size: 0.85rem;
+  color: #475569;
+}
+
 .dot {
   display: inline-block;
   width: 10px;
