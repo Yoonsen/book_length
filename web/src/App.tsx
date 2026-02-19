@@ -28,10 +28,10 @@ type DetailRow = {
   total: number
 }
 
-const CSV_PATH = `${import.meta.env.BASE_URL}Helenes_korpusdata.csv`
-const METADATA_URL = 'https://api.nb.no/dhlab/get_metadata'
+const CSV_PATH = `${import.meta.env.BASE_URL}gendered_database.csv`
 const FREQUENCIES_URL = 'https://api.nb.no/dhlab/frequencies'
 const TRIGGER_WORD = 'og'
+const URN_BATCH_SIZE = 500
 
 function normalizeUrn(row: Record<string, string>): string {
   return (row.urn || row.new_urns || '').trim()
@@ -66,58 +66,29 @@ async function postJson(url: string, payload: unknown): Promise<unknown> {
   return response.json()
 }
 
-function parseMetadataRows(raw: unknown): Array<Record<string, unknown>> {
-  if (Array.isArray(raw)) {
-    return raw.filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = []
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size))
   }
-
-  if (raw && typeof raw === 'object') {
-    const objectRaw = raw as Record<string, unknown>
-    const allColumnObjects = Object.values(objectRaw).every(
-      (value) => value && typeof value === 'object' && !Array.isArray(value),
-    )
-
-    if (allColumnObjects) {
-      const rowKeys = new Set<string>()
-      Object.values(objectRaw).forEach((column) => {
-        Object.keys(column as Record<string, unknown>).forEach((key) => rowKeys.add(key))
-      })
-
-      return [...rowKeys]
-        .sort((a, b) => Number(a) - Number(b))
-        .map((rowKey) => {
-          const row: Record<string, unknown> = {}
-          Object.entries(objectRaw).forEach(([field, column]) => {
-            const value = (column as Record<string, unknown>)[rowKey]
-            if (value !== undefined) {
-              row[field] = value
-            }
-          })
-          return row
-        })
-    }
-  }
-
-  return []
+  return chunks
 }
 
-async function fetchMetadataMap(urns: string[]): Promise<Map<string, Record<string, unknown>>> {
-  const batchSize = 50
-  const map = new Map<string, Record<string, unknown>>()
+async function fetchFrequencyRows(urns: string[], cutoff: number): Promise<unknown[][]> {
+  const rows: unknown[][] = []
+  const chunks = chunkArray(urns, URN_BATCH_SIZE)
 
-  for (let i = 0; i < urns.length; i += batchSize) {
-    const batch = urns.slice(i, i + batchSize)
-    const raw = await postJson(METADATA_URL, { urns: batch })
-    const rows = parseMetadataRows(raw)
-    rows.forEach((row) => {
-      const urn = String(row.urn ?? '').trim()
-      if (urn) {
-        map.set(urn, row)
-      }
+  for (const batch of chunks) {
+    const raw = await postJson(FREQUENCIES_URL, {
+      cutoff,
+      urns: batch,
+      words: [TRIGGER_WORD],
     })
+    const freqRows = Array.isArray(raw) ? raw.filter((row): row is unknown[] => Array.isArray(row)) : []
+    rows.push(...freqRows)
   }
 
-  return map
+  return rows
 }
 
 function toStats(values: number[]): { mean: number | null; median: number | null; std: number | null } {
@@ -224,12 +195,19 @@ function App() {
             if (!urn) {
               return null
             }
+            const title = (raw.title || '').trim()
+            const author = (raw.author || raw.authors || '').trim()
             return {
               ...raw,
               urn,
-              title: (raw.title || '').trim(),
+              title,
+              author,
               year: parseYear(raw.year),
               dhlabid: parseDhlabid(raw.dhlabid),
+              subject: (raw.subject || '').trim(),
+              subjects: (raw.subjects || '').trim(),
+              literaryform: (raw.literaryform || '').trim(),
+              ddc: (raw.ddc || '').trim(),
             } as BookRow
           })
           .filter((row): row is BookRow => row !== null)
@@ -275,25 +253,7 @@ function App() {
         throw new Error('Sluttår må være større enn eller lik startår.')
       }
 
-      const urns = [...new Set(books.map((row) => row.urn))]
-      const metadataByUrn = await fetchMetadataMap(urns)
-
-      const enrichedBooks = books.map((book) => {
-        const metadata = metadataByUrn.get(book.urn)
-        if (!metadata) {
-          return book
-        }
-        return {
-          ...book,
-          dhlabid: parseDhlabid(book.dhlabid ?? (metadata.dhlabid as string | number | undefined)),
-          subjects: String(metadata.subjects ?? ''),
-          subject: String(metadata.subject ?? ''),
-          literaryform: String(metadata.literaryform ?? ''),
-          ddc: String(metadata.ddc ?? ''),
-        } as BookRow
-      })
-
-      const filtered = enrichedBooks.filter((book) => {
+      const filtered = books.filter((book) => {
         if (genderFilter !== 'all' && String(book.gender ?? '').toLowerCase() !== genderFilter.toLowerCase()) {
           return false
         }
@@ -321,7 +281,7 @@ function App() {
       const allCounts: number[] = []
       const uniqueDocuments = new Set<string>()
       const bookByDhlabid = new Map<number, BookRow>()
-      enrichedBooks.forEach((book) => {
+      books.forEach((book) => {
         if (book.dhlabid !== undefined) {
           bookByDhlabid.set(book.dhlabid, book)
         }
@@ -343,13 +303,7 @@ function App() {
           continue
         }
 
-        const raw = await postJson(FREQUENCIES_URL, {
-          cutoff,
-          urns: yearUrns,
-          words: [TRIGGER_WORD],
-        })
-
-        const freqRows = Array.isArray(raw) ? raw.filter((row): row is unknown[] => Array.isArray(row)) : []
+        const freqRows = await fetchFrequencyRows(yearUrns, cutoff)
         freqRows.forEach((row) => {
           if (row.length < 4) return
           const dhlabid = parseDhlabid(row[0] as string | number | undefined) ?? null
