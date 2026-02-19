@@ -291,7 +291,7 @@ function App() {
   const [startYear, setStartYear] = useState(2010)
   const [endYear, setEndYear] = useState(2025)
   const [binCount, setBinCount] = useState(3)
-  const [minLength, setMinLength] = useState(0)
+  const [minLength, setMinLength] = useState(10000)
   const [maxLength, setMaxLength] = useState('')
 
   const [genderFilter, setGenderFilter] = useState('all')
