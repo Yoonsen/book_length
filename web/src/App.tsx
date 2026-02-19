@@ -934,7 +934,7 @@ function App() {
     <div className="page">
       <h1>Frekvensanalyse med bins</h1>
       <p className="lead">
-        Henter metadata, filtrerer bokutvalg, og plotter dokumentlengde (`total`) over bins i valgt årsintervall. Triggerordet "{TRIGGER_WORD}" brukes kun for å hente dokumentradene.
+        Henter metadata, filtrerer bokutvalg, og plotter dokumentlengde (`total`) over bins i valgt årsintervall.
       </p>
 
       {!csvLoaded && !error && <p className="status info">Laster korpus...</p>}
