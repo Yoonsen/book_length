@@ -229,6 +229,38 @@ function significanceLabel(pValue: number | null): string {
   return 'ns'
 }
 
+function linearTrend(points: Array<{ x: number; y: number }>): {
+  slope: number
+  intercept: number
+  r2: number
+} | null {
+  if (points.length < 2) return null
+
+  const n = points.length
+  const sumX = points.reduce((acc, p) => acc + p.x, 0)
+  const sumY = points.reduce((acc, p) => acc + p.y, 0)
+  const meanX = sumX / n
+  const meanY = sumY / n
+
+  let sxx = 0
+  let sxy = 0
+  let syy = 0
+  for (const p of points) {
+    const dx = p.x - meanX
+    const dy = p.y - meanY
+    sxx += dx * dx
+    sxy += dx * dy
+    syy += dy * dy
+  }
+
+  if (sxx === 0 || syy === 0) return null
+  const slope = sxy / sxx
+  const intercept = meanY - slope * meanX
+  const r2 = (sxy * sxy) / (sxx * syy)
+
+  return { slope, intercept, r2 }
+}
+
 function GenderErrorBarPlot({ rows }: { rows: BinGenderSummaryRow[] }) {
   const width = 900
   const height = 280
@@ -528,6 +560,46 @@ function App() {
         significance: row.significance,
       }))
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(diffSheet), 'Diff_bin')
+
+      const trendPoints = binDifferenceRows
+        .filter((row) => row.meanDiffFemaleMinusMale !== null)
+        .map((row) => ({
+          x: row.binIndex,
+          y: row.meanDiffFemaleMinusMale as number,
+          label: row.binLabel,
+        }))
+      const trend = linearTrend(trendPoints)
+      if (trend) {
+        const trendSummary = [
+          {
+            metric: 'n_bins',
+            value: trendPoints.length,
+          },
+          {
+            metric: 'slope_diff_per_bin',
+            value: trend.slope,
+          },
+          {
+            metric: 'intercept',
+            value: trend.intercept,
+          },
+          {
+            metric: 'r_squared',
+            value: trend.r2,
+          },
+        ]
+
+        const trendRows = trendPoints.map((p) => ({
+          bin: p.x,
+          year_range: p.label,
+          observed_diff: p.y,
+          fitted_diff: trend.intercept + trend.slope * p.x,
+          residual: p.y - (trend.intercept + trend.slope * p.x),
+        }))
+
+        XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(trendSummary), 'Trend_summary')
+        XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(trendRows), 'Trend_diff')
+      }
     }
 
     if (topLongestRows.length > 0) {
