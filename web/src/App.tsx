@@ -46,11 +46,18 @@ type BinGenderSummaryRow = {
 type BinDifferenceRow = {
   binIndex: number
   binLabel: string
+  femaleN: number
+  maleN: number
   femaleMean: number | null
   maleMean: number | null
   meanDiffFemaleMinusMale: number | null
   femaleStd: number | null
   maleStd: number | null
+  femaleSe: number | null
+  maleSe: number | null
+  diffSe: number | null
+  zScore: number | null
+  pValueTwoSided: number | null
 }
 
 type TopLongestRow = {
@@ -183,6 +190,33 @@ function toStats(values: number[]): { mean: number | null; median: number | null
     values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length
   const std = Math.sqrt(variance)
   return { mean, median, std }
+}
+
+function erfApprox(x: number): number {
+  // Abramowitz and Stegun 7.1.26 approximation.
+  const sign = x < 0 ? -1 : 1
+  const absX = Math.abs(x)
+  const t = 1 / (1 + 0.3275911 * absX)
+  const a1 = 0.254829592
+  const a2 = -0.284496736
+  const a3 = 1.421413741
+  const a4 = -1.453152027
+  const a5 = 1.061405429
+  const y =
+    1 -
+    (((((a5 * t + a4) * t + a3) * t + a2) * t + a1) *
+      t *
+      Math.exp(-absX * absX))
+  return sign * y
+}
+
+function normalCdf(x: number): number {
+  return 0.5 * (1 + erfApprox(x / Math.sqrt(2)))
+}
+
+function twoSidedPValueFromZ(z: number): number {
+  const p = 2 * (1 - normalCdf(Math.abs(z)))
+  return Math.max(0, Math.min(1, p))
 }
 
 function GenderErrorBarPlot({ rows }: { rows: BinGenderSummaryRow[] }) {
@@ -565,6 +599,8 @@ function App() {
         differences.push({
           binIndex: bin.index,
           binLabel: bin.label,
+          femaleN: statsByGender.female.documents,
+          maleN: statsByGender.male.documents,
           femaleMean: statsByGender.female.mean,
           maleMean: statsByGender.male.mean,
           meanDiffFemaleMinusMale:
@@ -573,6 +609,57 @@ function App() {
               : null,
           femaleStd: statsByGender.female.std,
           maleStd: statsByGender.male.std,
+          femaleSe:
+            statsByGender.female.std !== null && statsByGender.female.documents > 0
+              ? statsByGender.female.std / Math.sqrt(statsByGender.female.documents)
+              : null,
+          maleSe:
+            statsByGender.male.std !== null && statsByGender.male.documents > 0
+              ? statsByGender.male.std / Math.sqrt(statsByGender.male.documents)
+              : null,
+          diffSe:
+            statsByGender.female.std !== null &&
+            statsByGender.male.std !== null &&
+            statsByGender.female.documents > 0 &&
+            statsByGender.male.documents > 0
+              ? Math.sqrt(
+                  (statsByGender.female.std ** 2) / statsByGender.female.documents +
+                    (statsByGender.male.std ** 2) / statsByGender.male.documents,
+                )
+              : null,
+          zScore:
+            statsByGender.female.mean !== null &&
+            statsByGender.male.mean !== null &&
+            statsByGender.female.std !== null &&
+            statsByGender.male.std !== null &&
+            statsByGender.female.documents > 0 &&
+            statsByGender.male.documents > 0
+              ? (() => {
+                  const se = Math.sqrt(
+                    (statsByGender.female.std ** 2) / statsByGender.female.documents +
+                      (statsByGender.male.std ** 2) / statsByGender.male.documents,
+                  )
+                  if (!Number.isFinite(se) || se === 0) return null
+                  return (statsByGender.female.mean - statsByGender.male.mean) / se
+                })()
+              : null,
+          pValueTwoSided:
+            statsByGender.female.mean !== null &&
+            statsByGender.male.mean !== null &&
+            statsByGender.female.std !== null &&
+            statsByGender.male.std !== null &&
+            statsByGender.female.documents > 0 &&
+            statsByGender.male.documents > 0
+              ? (() => {
+                  const se = Math.sqrt(
+                    (statsByGender.female.std ** 2) / statsByGender.female.documents +
+                      (statsByGender.male.std ** 2) / statsByGender.male.documents,
+                  )
+                  if (!Number.isFinite(se) || se === 0) return null
+                  const z = (statsByGender.female.mean - statsByGender.male.mean) / se
+                  return twoSidedPValueFromZ(z)
+                })()
+              : null,
         })
 
         ;(['female', 'male'] as const).forEach((gender) => {
@@ -853,28 +940,42 @@ function App() {
               <tr>
                 <th>Bin</th>
                 <th>Årsintervall</th>
+                <th>Kvinner N</th>
+                <th>Menn N</th>
                 <th>Kvinner mean lengde</th>
                 <th>Menn mean lengde</th>
                 <th>Diff (kvinner-menn)</th>
                 <th>Kvinner std lengde</th>
                 <th>Menn std lengde</th>
+                <th>Kvinner SE</th>
+                <th>Menn SE</th>
+                <th>Diff SE</th>
+                <th>z</th>
+                <th>p (tosidig)</th>
               </tr>
             </thead>
             <tbody>
               {binDifferenceRows.length === 0 && (
                 <tr>
-                  <td colSpan={7}>Ingen differanseberegning enda.</td>
+                  <td colSpan={14}>Ingen differanseberegning enda.</td>
                 </tr>
               )}
               {binDifferenceRows.map((row, index) => (
                 <tr key={`${row.binIndex}-${index}`}>
                   <td>{row.binIndex}</td>
                   <td>{row.binLabel}</td>
+                  <td>{row.femaleN}</td>
+                  <td>{row.maleN}</td>
                   <td>{row.femaleMean === null ? '' : row.femaleMean.toFixed(4)}</td>
                   <td>{row.maleMean === null ? '' : row.maleMean.toFixed(4)}</td>
                   <td>{row.meanDiffFemaleMinusMale === null ? '' : row.meanDiffFemaleMinusMale.toFixed(4)}</td>
                   <td>{row.femaleStd === null ? '' : row.femaleStd.toFixed(4)}</td>
                   <td>{row.maleStd === null ? '' : row.maleStd.toFixed(4)}</td>
+                  <td>{row.femaleSe === null ? '' : row.femaleSe.toFixed(4)}</td>
+                  <td>{row.maleSe === null ? '' : row.maleSe.toFixed(4)}</td>
+                  <td>{row.diffSe === null ? '' : row.diffSe.toFixed(4)}</td>
+                  <td>{row.zScore === null ? '' : row.zScore.toFixed(4)}</td>
+                  <td>{row.pValueTwoSided === null ? '' : row.pValueTwoSided.toExponential(3)}</td>
                 </tr>
               ))}
             </tbody>
