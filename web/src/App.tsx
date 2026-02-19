@@ -10,16 +10,8 @@ type BookRow = {
   [key: string]: string | number | undefined
 }
 
-type Period = {
-  label: string
-  start: number
-  end: number
-}
-
-type SummaryRow = {
-  period: string
-  group: string
-  word: string
+type YearSummaryRow = {
+  year: number
   documents: number
   nCounts: number
   mean: number | null
@@ -28,10 +20,8 @@ type SummaryRow = {
 }
 
 type DetailRow = {
-  period: string
-  group: string
+  year: number
   dhlabid: number | null
-  word: string
   count: number
   total: number
 }
@@ -39,8 +29,9 @@ type DetailRow = {
 const CSV_PATH = `${import.meta.env.BASE_URL}Helenes_korpusdata.csv`
 const METADATA_URL = 'https://api.nb.no/dhlab/get_metadata'
 const FREQUENCIES_URL = 'https://api.nb.no/dhlab/frequencies'
-
-const DEFAULT_PERIODS = '2010-2020,2020-2025'
+const TRIGGER_WORD = 'og'
+const DEFAULT_START_YEAR = 2010
+const DEFAULT_END_YEAR = 2025
 
 function normalizeUrn(row: Record<string, string>): string {
   return (row.urn || row.new_urns || '').trim()
@@ -60,25 +51,6 @@ function parseDhlabid(value: string | number | undefined): number | undefined {
   }
   const id = Number(value)
   return Number.isFinite(id) ? id : undefined
-}
-
-function parsePeriods(raw: string): Period[] {
-  return raw
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .map((item) => {
-      const [left, right] = item.includes(':') ? item.split(':', 2) : [item, item]
-      const label = left.trim()
-      const years = right.trim()
-      const [startRaw, endRaw] = years.split('-', 2)
-      const start = Number(startRaw)
-      const end = Number(endRaw)
-      if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
-        throw new Error(`Ugyldig periode: ${item}`)
-      }
-      return { label, start, end }
-    })
 }
 
 async function postJson(url: string, payload: unknown): Promise<unknown> {
@@ -163,6 +135,49 @@ function toStats(values: number[]): { mean: number | null; median: number | null
   return { mean, median, std }
 }
 
+function StatsPlot({ rows }: { rows: YearSummaryRow[] }) {
+  const width = 900
+  const height = 280
+  const padding = 32
+
+  const yValues = rows.flatMap((row) => [row.mean, row.median, row.std]).filter((value): value is number => value !== null)
+  if (rows.length === 0 || yValues.length === 0) {
+    return <p>Ingen datapunkter for plott enda.</p>
+  }
+
+  const minYear = rows[0].year
+  const maxYear = rows[rows.length - 1].year
+  const yMax = Math.max(...yValues)
+  const yScale = (value: number) => height - padding - (value / (yMax || 1)) * (height - padding * 2)
+  const xScale = (year: number) => {
+    if (maxYear === minYear) return width / 2
+    return padding + ((year - minYear) / (maxYear - minYear)) * (width - padding * 2)
+  }
+
+  const lineFor = (field: 'mean' | 'median' | 'std') =>
+    rows
+      .filter((row) => row[field] !== null)
+      .map((row) => `${xScale(row.year)},${yScale(row[field] as number)}`)
+      .join(' ')
+
+  return (
+    <div className="chartWrap">
+      <svg viewBox={`0 0 ${width} ${height}`} className="chart">
+        <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="#94a3b8" />
+        <line x1={padding} y1={padding} x2={padding} y2={height - padding} stroke="#94a3b8" />
+        <polyline fill="none" stroke="#2563eb" strokeWidth="2" points={lineFor('mean')} />
+        <polyline fill="none" stroke="#16a34a" strokeWidth="2" points={lineFor('median')} />
+        <polyline fill="none" stroke="#dc2626" strokeWidth="2" points={lineFor('std')} />
+      </svg>
+      <div className="legend">
+        <span><i className="dot mean" /> mean</span>
+        <span><i className="dot median" /> median</span>
+        <span><i className="dot std" /> std</span>
+      </div>
+    </div>
+  )
+}
+
 function App() {
   const [books, setBooks] = useState<BookRow[]>([])
   const [csvLoaded, setCsvLoaded] = useState(false)
@@ -170,9 +185,8 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string>('')
 
-  const [wordsText, setWordsText] = useState('og')
-  const [periodsText, setPeriodsText] = useState(DEFAULT_PERIODS)
-  const [groupBy, setGroupBy] = useState('gender')
+  const [startYear, setStartYear] = useState(DEFAULT_START_YEAR)
+  const [endYear, setEndYear] = useState(DEFAULT_END_YEAR)
   const [cutoff, setCutoff] = useState(1)
 
   const [genderFilter, setGenderFilter] = useState('all')
@@ -180,7 +194,7 @@ function App() {
   const [literaryformFilter, setLiteraryformFilter] = useState('')
   const [deweyPrefix, setDeweyPrefix] = useState('')
 
-  const [summaryRows, setSummaryRows] = useState<SummaryRow[]>([])
+  const [summaryRows, setSummaryRows] = useState<YearSummaryRow[]>([])
   const [detailRows, setDetailRows] = useState<DetailRow[]>([])
 
   useEffect(() => {
@@ -242,13 +256,8 @@ function App() {
     setInfo('')
 
     try {
-      const periods = parsePeriods(periodsText)
-      const words = wordsText
-        .split(',')
-        .map((word) => word.trim())
-        .filter(Boolean)
-      if (words.length === 0) {
-        throw new Error('Skriv minst ett ord i ordfeltet.')
+      if (endYear < startYear) {
+        throw new Error('Sluttår må være større enn eller lik startår.')
       }
 
       const urns = [...new Set(books.map((row) => row.urn))]
@@ -261,7 +270,7 @@ function App() {
         }
         return {
           ...book,
-          dhlabid: parseDhlabid(book.dhlabid ?? metadata.dhlabid as string | number | undefined),
+          dhlabid: parseDhlabid(book.dhlabid ?? (metadata.dhlabid as string | number | undefined)),
           subjects: String(metadata.subjects ?? ''),
           subject: String(metadata.subject ?? ''),
           literaryform: String(metadata.literaryform ?? ''),
@@ -292,68 +301,58 @@ function App() {
         return true
       })
 
-      const summary: SummaryRow[] = []
+      const summary: YearSummaryRow[] = []
       const details: DetailRow[] = []
+      for (let year = startYear; year <= endYear; year += 1) {
+        const yearBooks = filtered.filter((book) => parseYear(book.year) === year)
+        const yearUrns = yearBooks.map((book) => book.urn)
+        if (yearUrns.length === 0) {
+          summary.push({
+            year,
+            documents: 0,
+            nCounts: 0,
+            mean: null,
+            median: null,
+            std: null,
+          })
+          continue
+        }
 
-      for (const period of periods) {
-        const periodBooks = filtered.filter((book) => {
-          const year = parseYear(book.year)
-          return year !== undefined && year >= period.start && year <= period.end
+        const raw = await postJson(FREQUENCIES_URL, {
+          cutoff,
+          urns: yearUrns,
+          words: [TRIGGER_WORD],
         })
 
-        const groups = [...new Set(periodBooks.map((book) => String(book[groupBy] ?? '').trim() || 'unknown'))].sort()
-
-        for (const groupValue of groups) {
-          const groupBooks = periodBooks.filter(
-            (book) => (String(book[groupBy] ?? '').trim() || 'unknown') === groupValue,
-          )
-          const groupUrns = groupBooks.map((book) => book.urn)
-          if (groupUrns.length === 0) {
-            continue
-          }
-
-          const raw = await postJson(FREQUENCIES_URL, {
-            cutoff,
-            urns: groupUrns,
-            words,
+        const freqRows = Array.isArray(raw) ? raw.filter((row): row is unknown[] => Array.isArray(row)) : []
+        freqRows.forEach((row) => {
+          if (row.length < 4) return
+          details.push({
+            year,
+            dhlabid: parseDhlabid(row[0] as string | number | undefined) ?? null,
+            count: Number(row[2]),
+            total: Number(row[3]),
           })
+        })
 
-          const freqRows = Array.isArray(raw) ? raw.filter((row): row is unknown[] => Array.isArray(row)) : []
-          freqRows.forEach((row) => {
-            if (row.length < 4) return
-            details.push({
-              period: period.label,
-              group: groupValue,
-              dhlabid: parseDhlabid(row[0] as string | number | undefined) ?? null,
-              word: String(row[1]),
-              count: Number(row[2]),
-              total: Number(row[3]),
-            })
-          })
-
-          words.forEach((word) => {
-            const values = freqRows
-              .filter((row) => String(row[1]) === word)
-              .map((row) => Number(row[2]))
-              .filter((value) => Number.isFinite(value))
-            const stats = toStats(values)
-            summary.push({
-              period: period.label,
-              group: groupValue,
-              word,
-              documents: groupUrns.length,
-              nCounts: values.length,
-              mean: stats.mean,
-              median: stats.median,
-              std: stats.std,
-            })
-          })
-        }
+        const values = freqRows
+          .filter((row) => String(row[1]) === TRIGGER_WORD)
+          .map((row) => Number(row[2]))
+          .filter((value) => Number.isFinite(value))
+        const stats = toStats(values)
+        summary.push({
+          year,
+          documents: yearUrns.length,
+          nCounts: values.length,
+          mean: stats.mean,
+          median: stats.median,
+          std: stats.std,
+        })
       }
 
       setSummaryRows(summary)
       setDetailRows(details)
-      setInfo(`Klar: ${summary.length} grupperader og ${details.length} frekvensrader.`)
+      setInfo(`Klar: ${summary.length} årsrader og ${details.length} frekvensrader.`)
     } catch (runError) {
       setError(runError instanceof Error ? runError.message : 'Analyse feilet')
     } finally {
@@ -363,29 +362,21 @@ function App() {
 
   return (
     <div className="page">
-      <h1>Frekvensanalyse per periode</h1>
+      <h1>Frekvensanalyse per år</h1>
       <p className="lead">
-        Henter metadata, filtrerer bokutvalg, og sammenligner dokumentfrekvens mellom perioder.
+        Henter metadata, filtrerer bokutvalg, og plotter dokumentfrekvens (triggerord: {TRIGGER_WORD}) over år.
       </p>
 
       <section className="panel">
         <h2>Innstillinger</h2>
         <div className="grid">
           <label>
-            Ord (kommaseparert)
-            <input value={wordsText} onChange={(event) => setWordsText(event.target.value)} />
+            Startår
+            <input type="number" value={startYear} onChange={(event) => setStartYear(Number(event.target.value))} />
           </label>
           <label>
-            Perioder
-            <input
-              value={periodsText}
-              onChange={(event) => setPeriodsText(event.target.value)}
-              placeholder="2010-2020,2020-2025"
-            />
-          </label>
-          <label>
-            Grupper på felt
-            <input value={groupBy} onChange={(event) => setGroupBy(event.target.value)} />
+            Sluttår
+            <input type="number" value={endYear} onChange={(event) => setEndYear(Number(event.target.value))} />
           </label>
           <label>
             Cutoff
@@ -435,14 +426,17 @@ function App() {
       {info && <p className="status ok">{info}</p>}
 
       <section className="panel">
-        <h2>Summary (mean, median, std)</h2>
+        <h2>Plott</h2>
+        <StatsPlot rows={summaryRows} />
+      </section>
+
+      <section className="panel">
+        <h2>Summary per år (mean, median, std)</h2>
         <div className="tableWrap">
           <table>
             <thead>
               <tr>
-                <th>Periode</th>
-                <th>Gruppe</th>
-                <th>Ord</th>
+                <th>År</th>
                 <th>Dokumenter</th>
                 <th>N</th>
                 <th>Mean</th>
@@ -453,14 +447,12 @@ function App() {
             <tbody>
               {summaryRows.length === 0 && (
                 <tr>
-                  <td colSpan={8}>Ingen resultater enda.</td>
+                  <td colSpan={6}>Ingen resultater enda.</td>
                 </tr>
               )}
               {summaryRows.map((row, index) => (
-                <tr key={`${row.period}-${row.group}-${row.word}-${index}`}>
-                  <td>{row.period}</td>
-                  <td>{row.group}</td>
-                  <td>{row.word}</td>
+                <tr key={`${row.year}-${index}`}>
+                  <td>{row.year}</td>
                   <td>{row.documents}</td>
                   <td>{row.nCounts}</td>
                   <td>{row.mean === null ? '' : row.mean.toFixed(4)}</td>
@@ -479,21 +471,17 @@ function App() {
           <table>
             <thead>
               <tr>
-                <th>Periode</th>
-                <th>Gruppe</th>
+                <th>År</th>
                 <th>dhlabid</th>
-                <th>Ord</th>
                 <th>Count</th>
                 <th>Total</th>
               </tr>
             </thead>
             <tbody>
               {detailRows.slice(0, 200).map((row, index) => (
-                <tr key={`${row.period}-${row.group}-${row.word}-${index}`}>
-                  <td>{row.period}</td>
-                  <td>{row.group}</td>
+                <tr key={`${row.year}-${row.dhlabid}-${index}`}>
+                  <td>{row.year}</td>
                   <td>{row.dhlabid ?? ''}</td>
-                  <td>{row.word}</td>
                   <td>{row.count}</td>
                   <td>{row.total}</td>
                 </tr>
