@@ -291,6 +291,8 @@ function App() {
   const [startYear, setStartYear] = useState(2010)
   const [endYear, setEndYear] = useState(2025)
   const [binCount, setBinCount] = useState(3)
+  const [minLength, setMinLength] = useState(0)
+  const [maxLength, setMaxLength] = useState('')
 
   const [genderFilter, setGenderFilter] = useState('all')
   const [subjectContains, setSubjectContains] = useState('')
@@ -419,6 +421,13 @@ function App() {
       if (binCount < 1) {
         throw new Error('Antall bins må være minst 1.')
       }
+      const maxLengthValue = maxLength.trim() === '' ? null : Number(maxLength)
+      if (!Number.isFinite(minLength) || minLength < 0) {
+        throw new Error('Min lengde må være 0 eller høyere.')
+      }
+      if (maxLengthValue !== null && (!Number.isFinite(maxLengthValue) || maxLengthValue < minLength)) {
+        throw new Error('Maks lengde må være tom eller større enn/lik min lengde.')
+      }
 
       const filtered = books.filter((book) => {
         if (genderFilter !== 'all' && String(book.gender ?? '').toLowerCase() !== genderFilter.toLowerCase()) {
@@ -465,7 +474,6 @@ function App() {
           return year !== undefined && year >= bin.startYear && year <= bin.endYear
         })
         const binUrns = binBooks.map((book) => book.urn)
-        binBooks.forEach((book) => uniqueDocuments.add(book.urn))
 
         if (binUrns.length === 0) {
           summary.push({
@@ -483,7 +491,7 @@ function App() {
         }
 
         const freqRows = await fetchFrequencyRows(binUrns, 1)
-        const binDetails: DetailRow[] = []
+        const binDetailsRaw: DetailRow[] = []
         freqRows.forEach((row) => {
           if (row.length < 4) return
           const dhlabid = parseDhlabid(row[0] as string | number | undefined) ?? null
@@ -501,13 +509,19 @@ function App() {
             count,
             total,
           }
-          details.push(detail)
-          binDetails.push(detail)
+          binDetailsRaw.push(detail)
         })
 
-        const values = freqRows
-          .filter((row) => String(row[1]) === TRIGGER_WORD)
-          .map((row) => Number(row[3]))
+        const binDetails = binDetailsRaw.filter(
+          (row) => row.total >= minLength && (maxLengthValue === null || row.total <= maxLengthValue),
+        )
+        details.push(...binDetails)
+        binDetails.forEach((row) => {
+          uniqueDocuments.add(row.dhlabid !== null ? String(row.dhlabid) : `${row.year}:${row.author}:${row.title}`)
+        })
+
+        const values = binDetails
+          .map((row) => row.total)
           .filter((value) => Number.isFinite(value))
         allTotals.push(...values)
         const stats = toStats(values)
@@ -516,7 +530,7 @@ function App() {
           binLabel: bin.label,
           startYear: bin.startYear,
           endYear: bin.endYear,
-          documents: binUrns.length,
+          documents: binDetails.length,
           nCounts: values.length,
           mean: stats.mean,
           median: stats.median,
@@ -603,7 +617,7 @@ function App() {
       setBinGenderSummaryRows(byGenderSummary)
       setBinDifferenceRows(differences)
       setTopLongestRows(longestRows)
-      setInfo(`Klar: ${summary.length} bins, ${uniqueDocuments.size} dokumenter, ${details.length} frekvensrader.`)
+      setInfo(`Klar: ${summary.length} bins, ${uniqueDocuments.size} dokumenter, ${details.length} frekvensrader (etter lengdefilter).`)
     } catch (runError) {
       setError(runError instanceof Error ? runError.message : 'Analyse feilet')
     } finally {
@@ -662,6 +676,25 @@ function App() {
               value={binCount}
               min={1}
               onChange={(event) => setBinCount(Number(event.target.value))}
+            />
+          </label>
+          <label>
+            Min lengde
+            <input
+              type="number"
+              value={minLength}
+              min={0}
+              onChange={(event) => setMinLength(Number(event.target.value))}
+            />
+          </label>
+          <label>
+            Maks lengde (valgfri)
+            <input
+              type="number"
+              value={maxLength}
+              min={0}
+              placeholder="tom = ingen øvre grense"
+              onChange={(event) => setMaxLength(event.target.value)}
             />
           </label>
           <label>
