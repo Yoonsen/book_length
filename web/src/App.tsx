@@ -27,8 +27,43 @@ type DetailRow = {
   dhlabid: number | null
   author: string
   title: string
+  gender: 'male' | 'female' | 'unknown'
+  binIndex: number
+  binLabel: string
   count: number
   total: number
+}
+
+type BinGenderSummaryRow = {
+  binIndex: number
+  binLabel: string
+  gender: 'male' | 'female' | 'unknown'
+  documents: number
+  mean: number | null
+  std: number | null
+}
+
+type BinDifferenceRow = {
+  binIndex: number
+  binLabel: string
+  femaleMean: number | null
+  maleMean: number | null
+  meanDiffFemaleMinusMale: number | null
+  femaleStd: number | null
+  maleStd: number | null
+}
+
+type TopLongestRow = {
+  binIndex: number
+  binLabel: string
+  gender: 'male' | 'female'
+  rank: number
+  year: number
+  dhlabid: number | null
+  author: string
+  title: string
+  total: number
+  count: number
 }
 
 const CSV_PATH = `${import.meta.env.BASE_URL}gendered_database.csv`
@@ -211,6 +246,9 @@ function App() {
 
   const [summaryRows, setSummaryRows] = useState<BinSummaryRow[]>([])
   const [detailRows, setDetailRows] = useState<DetailRow[]>([])
+  const [binGenderSummaryRows, setBinGenderSummaryRows] = useState<BinGenderSummaryRow[]>([])
+  const [binDifferenceRows, setBinDifferenceRows] = useState<BinDifferenceRow[]>([])
+  const [topLongestRows, setTopLongestRows] = useState<TopLongestRow[]>([])
   const [overallStats, setOverallStats] = useState<{
     documents: number
     nCounts: number
@@ -317,6 +355,9 @@ function App() {
     setError(null)
     setInfo('')
     setOverallStats(null)
+    setBinGenderSummaryRows([])
+    setBinDifferenceRows([])
+    setTopLongestRows([])
 
     try {
       if (endYear < startYear) {
@@ -351,6 +392,9 @@ function App() {
 
       const summary: BinSummaryRow[] = []
       const details: DetailRow[] = []
+      const byGenderSummary: BinGenderSummaryRow[] = []
+      const differences: BinDifferenceRow[] = []
+      const longestRows: TopLongestRow[] = []
       const allCounts: number[] = []
       const uniqueDocuments = new Set<string>()
       const bookByDhlabid = new Map<number, BookRow>()
@@ -386,20 +430,26 @@ function App() {
         }
 
         const freqRows = await fetchFrequencyRows(binUrns, 1)
+        const binDetails: DetailRow[] = []
         freqRows.forEach((row) => {
           if (row.length < 4) return
           const dhlabid = parseDhlabid(row[0] as string | number | undefined) ?? null
           const matchedBook = dhlabid !== null ? bookByDhlabid.get(dhlabid) : undefined
           const count = Number(row[2])
           const total = Number(row[3])
-          details.push({
+          const detail: DetailRow = {
             year: matchedBook?.year ? Number(matchedBook.year) : bin.startYear,
             dhlabid,
             author: String(matchedBook?.author ?? ''),
             title: String(matchedBook?.title ?? ''),
+            gender: normalizeGender(matchedBook?.gender),
+            binIndex: bin.index,
+            binLabel: bin.label,
             count,
             total,
-          })
+          }
+          details.push(detail)
+          binDetails.push(detail)
         })
 
         const values = freqRows
@@ -418,6 +468,65 @@ function App() {
           mean: stats.mean,
           median: stats.median,
           std: stats.std,
+        })
+
+        const statsByGender: Record<'male' | 'female' | 'unknown', { mean: number | null; std: number | null; documents: number }> = {
+          female: { mean: null, std: null, documents: 0 },
+          male: { mean: null, std: null, documents: 0 },
+          unknown: { mean: null, std: null, documents: 0 },
+        }
+
+        ;(['female', 'male', 'unknown'] as const).forEach((gender) => {
+          const groupRows = binDetails.filter((row) => row.gender === gender)
+          const groupValues = groupRows.map((row) => row.count).filter((value) => Number.isFinite(value))
+          const groupStats = toStats(groupValues)
+          statsByGender[gender] = {
+            mean: groupStats.mean,
+            std: groupStats.std,
+            documents: groupRows.length,
+          }
+          byGenderSummary.push({
+            binIndex: bin.index,
+            binLabel: bin.label,
+            gender,
+            documents: groupRows.length,
+            mean: groupStats.mean,
+            std: groupStats.std,
+          })
+        })
+
+        differences.push({
+          binIndex: bin.index,
+          binLabel: bin.label,
+          femaleMean: statsByGender.female.mean,
+          maleMean: statsByGender.male.mean,
+          meanDiffFemaleMinusMale:
+            statsByGender.female.mean !== null && statsByGender.male.mean !== null
+              ? statsByGender.female.mean - statsByGender.male.mean
+              : null,
+          femaleStd: statsByGender.female.std,
+          maleStd: statsByGender.male.std,
+        })
+
+        ;(['female', 'male'] as const).forEach((gender) => {
+          const top = [...binDetails]
+            .filter((row) => row.gender === gender)
+            .sort((a, b) => b.total - a.total || b.count - a.count)
+            .slice(0, 10)
+          top.forEach((row, index) => {
+            longestRows.push({
+              binIndex: bin.index,
+              binLabel: bin.label,
+              gender,
+              rank: index + 1,
+              year: row.year,
+              dhlabid: row.dhlabid,
+              author: row.author,
+              title: row.title,
+              total: row.total,
+              count: row.count,
+            })
+          })
         })
       }
 
@@ -438,6 +547,9 @@ function App() {
 
       setSummaryRows(summary)
       setDetailRows(sortedDetails)
+      setBinGenderSummaryRows(byGenderSummary)
+      setBinDifferenceRows(differences)
+      setTopLongestRows(longestRows)
       setInfo(`Klar: ${summary.length} bins, ${uniqueDocuments.size} dokumenter, ${details.length} frekvensrader.`)
     } catch (runError) {
       setError(runError instanceof Error ? runError.message : 'Analyse feilet')
@@ -605,6 +717,121 @@ function App() {
                   <td>{row.mean === null ? '' : row.mean.toFixed(4)}</td>
                   <td>{row.median === null ? '' : row.median.toFixed(4)}</td>
                   <td>{row.std === null ? '' : row.std.toFixed(4)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2>Mean og std per kjønn i hver bin</h2>
+        <div className="tableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Bin</th>
+                <th>Årsintervall</th>
+                <th>Kjønn</th>
+                <th>Dokumenter</th>
+                <th>Mean</th>
+                <th>Std</th>
+              </tr>
+            </thead>
+            <tbody>
+              {binGenderSummaryRows.length === 0 && (
+                <tr>
+                  <td colSpan={6}>Ingen resultater enda.</td>
+                </tr>
+              )}
+              {binGenderSummaryRows.map((row, index) => (
+                <tr key={`${row.binIndex}-${row.gender}-${index}`}>
+                  <td>{row.binIndex}</td>
+                  <td>{row.binLabel}</td>
+                  <td>{row.gender}</td>
+                  <td>{row.documents}</td>
+                  <td>{row.mean === null ? '' : row.mean.toFixed(4)}</td>
+                  <td>{row.std === null ? '' : row.std.toFixed(4)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2>Forskjell kvinner - menn per bin</h2>
+        <div className="tableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Bin</th>
+                <th>Årsintervall</th>
+                <th>Kvinner mean</th>
+                <th>Menn mean</th>
+                <th>Diff (kvinner-menn)</th>
+                <th>Kvinner std</th>
+                <th>Menn std</th>
+              </tr>
+            </thead>
+            <tbody>
+              {binDifferenceRows.length === 0 && (
+                <tr>
+                  <td colSpan={7}>Ingen differanseberegning enda.</td>
+                </tr>
+              )}
+              {binDifferenceRows.map((row, index) => (
+                <tr key={`${row.binIndex}-${index}`}>
+                  <td>{row.binIndex}</td>
+                  <td>{row.binLabel}</td>
+                  <td>{row.femaleMean === null ? '' : row.femaleMean.toFixed(4)}</td>
+                  <td>{row.maleMean === null ? '' : row.maleMean.toFixed(4)}</td>
+                  <td>{row.meanDiffFemaleMinusMale === null ? '' : row.meanDiffFemaleMinusMale.toFixed(4)}</td>
+                  <td>{row.femaleStd === null ? '' : row.femaleStd.toFixed(4)}</td>
+                  <td>{row.maleStd === null ? '' : row.maleStd.toFixed(4)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2>10 lengste dokumenter per bin (kvinner og menn)</h2>
+        <div className="tableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Bin</th>
+                <th>Årsintervall</th>
+                <th>Kjønn</th>
+                <th>Rang</th>
+                <th>År</th>
+                <th>Forfatter</th>
+                <th>Tittel</th>
+                <th>dhlabid</th>
+                <th>Total</th>
+                <th>Count</th>
+              </tr>
+            </thead>
+            <tbody>
+              {topLongestRows.length === 0 && (
+                <tr>
+                  <td colSpan={10}>Ingen toppliste enda.</td>
+                </tr>
+              )}
+              {topLongestRows.map((row, index) => (
+                <tr key={`${row.binIndex}-${row.gender}-${row.rank}-${index}`}>
+                  <td>{row.binIndex}</td>
+                  <td>{row.binLabel}</td>
+                  <td>{row.gender}</td>
+                  <td>{row.rank}</td>
+                  <td>{row.year}</td>
+                  <td>{row.author}</td>
+                  <td>{row.title}</td>
+                  <td>{row.dhlabid ?? ''}</td>
+                  <td>{row.total}</td>
+                  <td>{row.count}</td>
                 </tr>
               ))}
             </tbody>
